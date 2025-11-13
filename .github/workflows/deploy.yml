@@ -21,6 +21,7 @@ jobs:
             cd /home/podogrev/corp-bullshifter-bot
 
             # Fix git ownership issue
+            sudo chown -R github:github .git
             git config --global --add safe.directory /home/podogrev/corp-bullshifter-bot
 
             # Pull latest code
@@ -31,9 +32,8 @@ jobs:
             echo "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}" | sudo tee -a .env > /dev/null
             echo "CLAUDE_MODEL=${{ secrets.CLAUDE_MODEL }}" | sudo tee -a .env > /dev/null
 
-            # Set proper permissions
+            # Set proper permissions for .env
             sudo chmod 644 .env
-            sudo chown podogrev:podogrev .env
 
             # Restart the bot
             sudo docker compose down
