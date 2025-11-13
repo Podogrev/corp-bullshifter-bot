@@ -20,21 +20,24 @@ jobs:
           script: |
             cd /home/podogrev/corp-bullshifter-bot
 
+            # Fix git ownership issue
+            git config --global --add safe.directory /home/podogrev/corp-bullshifter-bot
+
             # Pull latest code
             git pull origin main
 
             # Create/update .env file with secrets
-            cat > .env << EOF
+            cat > .env << 'EOF'
             TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
             CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}
             CLAUDE_MODEL=${{ secrets.CLAUDE_MODEL }}
             EOF
 
             # Restart the bot
-            docker compose down
-            docker compose build
-            docker compose up -d
+            sudo docker compose down
+            sudo docker compose build
+            sudo docker compose up -d
 
             # Show status
-            docker compose ps
+            sudo docker compose ps
             echo "Deployment completed successfully!"
