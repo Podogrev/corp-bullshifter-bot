@@ -18,7 +18,7 @@ jobs:
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            cd ~/corp-bullshifter-bot
+            cd /home/podogrev/corp-bullshifter-bot
 
             # Pull latest code
             git pull origin main
@@ -31,10 +31,10 @@ jobs:
             EOF
 
             # Restart the bot
-            docker-compose down
-            docker-compose build
-            docker-compose up -d
+            docker compose down
+            docker compose build
+            docker compose up -d
 
             # Show status
-            docker-compose ps
+            docker compose ps
             echo "Deployment completed successfully!"
