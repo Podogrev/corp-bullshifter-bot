@@ -6,17 +6,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
 )
 
 const anthropicVersion = "2023-06-01"
 
 // Client is a Claude API client
 type Client struct {
-	apiKey     string
-	apiURL     string
-	model      string
-	httpClient *http.Client
+	apiKey       string
+	apiURL       string
+	model        string
+	httpClient   *http.Client
+	systemPrompt string
 }
 
 // Request represents a Claude API request
@@ -57,51 +60,42 @@ type Usage struct {
 
 // New creates a new Claude API client
 func New(apiKey, apiURL, model string, httpClient *http.Client) *Client {
-	return &Client{
-		apiKey:     apiKey,
-		apiURL:     apiURL,
-		model:      model,
-		httpClient: httpClient,
+	// Load system prompt from file
+	promptPath := os.Getenv("PROMPT_FILE")
+	if promptPath == "" {
+		promptPath = "/app/prompts/system_prompt.txt"
 	}
+
+	promptBytes, err := os.ReadFile(promptPath)
+	if err != nil {
+		log.Printf("Warning: failed to load prompt from %s: %v. Using default prompt.", promptPath, err)
+		promptBytes = []byte(getDefaultPrompt())
+	}
+
+	return &Client{
+		apiKey:       apiKey,
+		apiURL:       apiURL,
+		model:        model,
+		httpClient:   httpClient,
+		systemPrompt: string(promptBytes),
+	}
+}
+
+// getDefaultPrompt returns a fallback prompt if file is not found
+func getDefaultPrompt() string {
+	return `You are a text rewriting assistant. Rewrite messages into professional workplace tone.
+
+Rules:
+- Preserve meaning and language
+- Remove profanity and slang
+- Keep it natural and concise
+- Output only the rewritten text`
 }
 
 // RewriteToCorporate rewrites text into polite corporate style
 // Returns: (rewritten text, input tokens, output tokens, error)
 func (c *Client) RewriteToCorporate(ctx context.Context, text string) (string, int, int, error) {
-	prompt := fmt.Sprintf(`You are a text rewriting assistant. Your job is to help users express their thoughts in professional workplace tone.
-
-UNDERSTAND THE INTENT:
-- If user says "скажи на английском что X" or "say in English that X" → translate X to English in professional tone
-- If user says "напиши что X" or "write that X" → rephrase X in professional tone
-- If user writes a direct statement or message → rewrite it in professional tone
-- DO NOT add greetings like "Привет"/"Hello" unless they were in the original
-- DO NOT add unnecessary phrases like "I would like to" or "Could you clarify" unless in original
-
-CRITICAL RULES:
-- Extract the ACTUAL message the user wants to communicate
-- If it's a translation request ("скажи на английском/say in English"), translate the content part
-- If it's a direct message, rewrite it in professional tone
-- Keep the same message type (statement → statement, question → question)
-- Sound natural, like a real colleague writing
-
-Examples:
-Input: "Блядь. отвали от меня. Я уже все сделал"
-Output: "Я уже завершил эту задачу, можем обсудить детали позже"
-
-Input: "да я богатый уебака"
-Output: "Да, у меня хорошее финансовое положение"
-
-Input: "что"
-Output: "Что именно?"
-
-Input: "скажи на английском что я по паспорту русский и что у меня открыто Армянское ип"
-Output: "My nationality is Russian according to my passport, and I have an individual entrepreneur (IP) registration in Armenia"
-
-Input: "напиши что мне нужен отпуск срочно блять"
-Output: "Мне необходим отпуск в ближайшее время"
-
-User message:
-%s`, text)
+	prompt := fmt.Sprintf("%s%s", c.systemPrompt, text)
 
 	reqBody := Request{
 		Model:     c.model,

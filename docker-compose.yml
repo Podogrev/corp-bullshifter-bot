@@ -51,6 +51,8 @@ services:
       - CLAUDE_API_URL=${CLAUDE_API_URL:-https://api.anthropic.com/v1/messages}
       - DATABASE_URL=postgres://bot_user:${POSTGRES_PASSWORD:-change_me_in_production}@postgres:5432/corp_bullshifter?sslmode=disable
       - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./prompts:/app/prompts
 
 volumes:
   postgres_data:
