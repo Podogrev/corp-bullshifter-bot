@@ -27,11 +27,13 @@ jobs:
             git pull origin main
 
             # Create/update .env file with secrets
-            cat > .env << 'EOF'
-            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
-            CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}
-            CLAUDE_MODEL=${{ secrets.CLAUDE_MODEL }}
-            EOF
+            echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" | sudo tee .env > /dev/null
+            echo "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}" | sudo tee -a .env > /dev/null
+            echo "CLAUDE_MODEL=${{ secrets.CLAUDE_MODEL }}" | sudo tee -a .env > /dev/null
+
+            # Set proper permissions
+            sudo chmod 644 .env
+            sudo chown podogrev:podogrev .env
 
             # Restart the bot
             sudo docker compose down
