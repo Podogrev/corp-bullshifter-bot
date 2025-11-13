@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -21,6 +22,8 @@ const (
 	defaultClaudeModel = "claude-3-5-sonnet-20241022"
 	// Anthropic API version
 	anthropicVersion = "2023-06-01"
+	// Daily token limit per user
+	dailyTokenLimit = 10000
 )
 
 // Configuration holds all required settings
@@ -52,6 +55,7 @@ type ClaudeResponse struct {
 	Role    string               `json:"role"`
 	Content []ClaudeContentBlock `json:"content"`
 	Model   string               `json:"model"`
+	Usage   ClaudeUsage          `json:"usage"`
 }
 
 // ClaudeContentBlock represents a content block in the response
@@ -60,8 +64,101 @@ type ClaudeContentBlock struct {
 	Text string `json:"text"`
 }
 
+// ClaudeUsage represents token usage information from Claude API
+type ClaudeUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+// UserUsage tracks daily token usage for a user
+type UserUsage struct {
+	UserID       int64
+	RequestCount int
+	TokensUsed   int
+	LastReset    time.Time
+}
+
+// UsageTracker manages user usage tracking
+type UsageTracker struct {
+	mu    sync.RWMutex
+	users map[int64]*UserUsage
+}
+
+// NewUsageTracker creates a new usage tracker
+func NewUsageTracker() *UsageTracker {
+	return &UsageTracker{
+		users: make(map[int64]*UserUsage),
+	}
+}
+
+// CheckAndUpdateUsage checks if user can make a request and updates usage
+func (ut *UsageTracker) CheckAndUpdateUsage(userID int64, tokensUsed int) (allowed bool, remaining int) {
+	ut.mu.Lock()
+	defer ut.mu.Unlock()
+
+	// Get or create user usage
+	usage, exists := ut.users[userID]
+	if !exists {
+		usage = &UserUsage{
+			UserID:    userID,
+			LastReset: time.Now(),
+		}
+		ut.users[userID] = usage
+	}
+
+	// Check if we need to reset (new day)
+	if time.Since(usage.LastReset) >= 24*time.Hour {
+		usage.RequestCount = 0
+		usage.TokensUsed = 0
+		usage.LastReset = time.Now()
+	}
+
+	// Check if user would exceed limit
+	if usage.TokensUsed+tokensUsed > dailyTokenLimit {
+		return false, dailyTokenLimit - usage.TokensUsed
+	}
+
+	// Update usage
+	usage.RequestCount++
+	usage.TokensUsed += tokensUsed
+
+	return true, dailyTokenLimit - usage.TokensUsed
+}
+
+// GetUsage returns current usage for a user
+func (ut *UsageTracker) GetUsage(userID int64) (requests int, tokens int, remaining int) {
+	ut.mu.RLock()
+	defer ut.mu.RUnlock()
+
+	usage, exists := ut.users[userID]
+	if !exists {
+		return 0, 0, dailyTokenLimit
+	}
+
+	// Check if we need to reset
+	if time.Since(usage.LastReset) >= 24*time.Hour {
+		return 0, 0, dailyTokenLimit
+	}
+
+	return usage.RequestCount, usage.TokensUsed, dailyTokenLimit - usage.TokensUsed
+}
+
+// ResetAllUsage resets usage for all users (called daily)
+func (ut *UsageTracker) ResetAllUsage() {
+	ut.mu.Lock()
+	defer ut.mu.Unlock()
+
+	now := time.Now()
+	for _, usage := range ut.users {
+		usage.RequestCount = 0
+		usage.TokensUsed = 0
+		usage.LastReset = now
+	}
+	log.Println("Daily usage reset completed for all users")
+}
+
 // RewriteToCorporateEnglish calls Claude API to rewrite text into polite corporate English
-func RewriteToCorporateEnglish(ctx context.Context, client *http.Client, config Configuration, text string) (string, error) {
+func RewriteToCorporateEnglish(ctx context.Context, client *http.Client, config Configuration, text string) (string, int, error) {
 	// Construct the prompt for corporate rewriting
 	prompt := fmt.Sprintf(`You are a corporate communication assistant.
 
@@ -93,13 +190,13 @@ User message:
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
+		return "", 0, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Create HTTP request
 	req, err := http.NewRequestWithContext(ctx, "POST", config.ClaudeAPIURL, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return "", 0, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Set required headers
@@ -110,33 +207,36 @@ User message:
 	// Send the request
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to send request: %w", err)
+		return "", 0, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Read response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
+		return "", 0, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	// Check for non-200 status
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		return "", 0, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Parse the response
 	var claudeResp ClaudeResponse
 	if err := json.Unmarshal(body, &claudeResp); err != nil {
-		return "", fmt.Errorf("failed to unmarshal response: %w", err)
+		return "", 0, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
 	// Extract the text from the first content block
 	if len(claudeResp.Content) == 0 {
-		return "", fmt.Errorf("no content in response")
+		return "", 0, fmt.Errorf("no content in response")
 	}
 
-	return claudeResp.Content[0].Text, nil
+	// Calculate total tokens used
+	totalTokens := claudeResp.Usage.InputTokens + claudeResp.Usage.OutputTokens
+
+	return claudeResp.Content[0].Text, totalTokens, nil
 }
 
 // handleStart handles the /start command
@@ -163,7 +263,8 @@ func handleHelp(bot *tgbotapi.BotAPI, message *tgbotapi.Message) {
 		"• Casual chat → Work-appropriate communication\n\n" +
 		"Commands:\n" +
 		"/start - Welcome message\n" +
-		"/help - This help message"
+		"/help - This help message\n" +
+		"/stats - Check your usage statistics"
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, text)
 	if _, err := bot.Send(msg); err != nil {
@@ -171,8 +272,49 @@ func handleHelp(bot *tgbotapi.BotAPI, message *tgbotapi.Message) {
 	}
 }
 
+// handleStats handles the /stats command
+func handleStats(bot *tgbotapi.BotAPI, message *tgbotapi.Message, tracker *UsageTracker) {
+	userID := message.From.ID
+	requests, tokens, remaining := tracker.GetUsage(userID)
+
+	text := fmt.Sprintf(
+		"📊 Your Usage Statistics\n\n"+
+			"Requests today: %d\n"+
+			"Tokens used: %d / %d\n"+
+			"Remaining: %d tokens\n\n"+
+			"Usage resets every 24 hours.",
+		requests, tokens, dailyTokenLimit, remaining)
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, text)
+	if _, err := bot.Send(msg); err != nil {
+		log.Printf("Error sending stats message: %v", err)
+	}
+}
+
 // handleTextMessage handles regular text messages
-func handleTextMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, client *http.Client, config Configuration) {
+func handleTextMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, client *http.Client, config Configuration, tracker *UsageTracker) {
+	userID := message.From.ID
+
+	// Estimate tokens for this request (rough estimate: ~500 tokens)
+	// We'll update with actual usage after API call
+	estimatedTokens := 500
+
+	// Check if user has enough tokens remaining
+	allowed, remaining := tracker.CheckAndUpdateUsage(userID, estimatedTokens)
+	if !allowed {
+		limitMsg := fmt.Sprintf(
+			"⚠️ Daily limit reached!\n\n"+
+				"You've used your daily allocation of %d tokens.\n"+
+				"Remaining: %d tokens\n\n"+
+				"Your limit will reset in 24 hours. Use /stats to check your usage.",
+			dailyTokenLimit, remaining)
+		msg := tgbotapi.NewMessage(message.Chat.ID, limitMsg)
+		if _, err := bot.Send(msg); err != nil {
+			log.Printf("Error sending limit message: %v", err)
+		}
+		return
+	}
+
 	// Show typing indicator
 	typingAction := tgbotapi.NewChatAction(message.Chat.ID, tgbotapi.ChatTyping)
 	if _, err := bot.Request(typingAction); err != nil {
@@ -184,9 +326,13 @@ func handleTextMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, client *
 	defer cancel()
 
 	// Call Claude API
-	rewrittenText, err := RewriteToCorporateEnglish(ctx, client, config, message.Text)
+	rewrittenText, actualTokens, err := RewriteToCorporateEnglish(ctx, client, config, message.Text)
 	if err != nil {
 		log.Printf("Error calling Claude API: %v", err)
+
+		// Refund estimated tokens since request failed
+		tracker.CheckAndUpdateUsage(userID, -estimatedTokens)
+
 		errorMsg := tgbotapi.NewMessage(message.Chat.ID,
 			"Sorry, I couldn't process your request right now. Please try again later.")
 		if _, err := bot.Send(errorMsg); err != nil {
@@ -194,6 +340,12 @@ func handleTextMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, client *
 		}
 		return
 	}
+
+	// Adjust usage with actual tokens (subtract estimate, add actual)
+	adjustment := actualTokens - estimatedTokens
+	tracker.CheckAndUpdateUsage(userID, adjustment)
+
+	log.Printf("User %d used %d tokens (estimated: %d)", userID, actualTokens, estimatedTokens)
 
 	// Send the rewritten text back
 	msg := tgbotapi.NewMessage(message.Chat.ID, rewrittenText)
@@ -230,6 +382,26 @@ func loadConfiguration() (Configuration, error) {
 	return config, nil
 }
 
+// startDailyResetTimer starts a goroutine that resets usage at midnight
+func startDailyResetTimer(tracker *UsageTracker) {
+	go func() {
+		for {
+			// Calculate time until next midnight
+			now := time.Now()
+			next := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
+			duration := next.Sub(now)
+
+			log.Printf("Next usage reset scheduled in %v", duration)
+
+			// Sleep until midnight
+			time.Sleep(duration)
+
+			// Reset all usage
+			tracker.ResetAllUsage()
+		}
+	}()
+}
+
 func main() {
 	log.Println("Starting Corporate Bullshifter bot...")
 
@@ -253,6 +425,13 @@ func main() {
 
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
+	// Initialize usage tracker
+	usageTracker := NewUsageTracker()
+	log.Printf("Usage tracker initialized. Daily limit: %d tokens per user", dailyTokenLimit)
+
+	// Start daily reset timer
+	startDailyResetTimer(usageTracker)
+
 	// Configure update parameters
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
@@ -275,6 +454,8 @@ func main() {
 				go handleStart(bot, update.Message)
 			case "help":
 				go handleHelp(bot, update.Message)
+			case "stats":
+				go handleStats(bot, update.Message, usageTracker)
 			default:
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 					"Unknown command. Use /help to see available commands.")
@@ -285,7 +466,7 @@ func main() {
 
 		// Handle text messages
 		if update.Message.Text != "" {
-			go handleTextMessage(bot, update.Message, httpClient, config)
+			go handleTextMessage(bot, update.Message, httpClient, config, usageTracker)
 		}
 	}
 }
