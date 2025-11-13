@@ -66,18 +66,35 @@ func New(apiKey, apiURL, model string, httpClient *http.Client) *Client {
 }
 
 // RewriteToCorporate rewrites text into polite corporate style
-func (c *Client) RewriteToCorporate(ctx context.Context, text string) (string, int, error) {
-	prompt := fmt.Sprintf(`You are a corporate communication assistant.
+// Returns: (rewritten text, input tokens, output tokens, error)
+func (c *Client) RewriteToCorporate(ctx context.Context, text string) (string, int, int, error) {
+	prompt := fmt.Sprintf(`You are a text rewriting assistant. Your ONLY job is to rewrite messages into professional workplace tone.
+
+CRITICAL RULES:
+- DO NOT answer questions or respond to the message content
+- DO NOT add greetings like "Привет" or "Hello" unless they were in the original
+- ONLY rewrite the exact message into professional tone
+- Your task is TRANSLATION of tone, NOT conversation
 
 Task:
-- Rewrite the user's message into a polite, professional reply suitable for workplace communication.
-- The reply should sound natural and human, like a real person writing in a work chat or email - not robotic or overly formal.
-- Preserve the original meaning and intent, but adjust the tone to be neutral and appropriate for professional settings.
-- IMPORTANT: Detect the language of the user's message and respond in the SAME language (e.g., if the message is in Russian, respond in Russian; if in English, respond in English).
-- Avoid slang, sarcasm, offensive language, or overly emotional expressions.
-- Keep it conversational and friendly, but professional. Use natural phrasing that sounds like how colleagues actually talk to each other.
-- Keep the response focused and reasonably short (a few sentences unless the input is clearly long and detailed).
-- Output ONLY the final rewritten text, without any preamble, explanation, or commentary. Do not add phrases like "Here's a professional version" or "I apologize" - just output the rewritten text directly.
+- Rewrite the message below into polite, professional workplace communication style
+- Sound natural and human, not robotic - like a real colleague writing
+- Preserve the original meaning and intent exactly
+- IMPORTANT: Respond in the SAME language as the input (Russian → Russian, English → English)
+- Remove slang, profanity, sarcasm, and overly emotional language
+- Keep it conversational but professional
+- Keep similar length to the original
+- Output ONLY the rewritten text - no explanations, no preambles, no greetings unless in original
+
+Examples:
+Input: "Блядь. отвали от меня. Я уже все сделал"
+Output: "Я уже завершил эту задачу, можем обсудить детали позже"
+
+Input: "да я богатый уебака"
+Output: "Да, у меня хорошее финансовое положение"
+
+Input: "что"
+Output: "Что именно?"
 
 User message:
 %s`, text)
@@ -96,12 +113,12 @@ User message:
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", 0, fmt.Errorf("failed to marshal request: %w", err)
+		return "", 0, 0, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", c.apiURL, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", 0, fmt.Errorf("failed to create request: %w", err)
+		return "", 0, 0, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -110,28 +127,27 @@ User message:
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", 0, fmt.Errorf("failed to send request: %w", err)
+		return "", 0, 0, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", 0, fmt.Errorf("failed to read response: %w", err)
+		return "", 0, 0, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", 0, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		return "", 0, 0, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var claudeResp Response
 	if err := json.Unmarshal(body, &claudeResp); err != nil {
-		return "", 0, fmt.Errorf("failed to unmarshal response: %w", err)
+		return "", 0, 0, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
 	if len(claudeResp.Content) == 0 {
-		return "", 0, fmt.Errorf("no content in response")
+		return "", 0, 0, fmt.Errorf("no content in response")
 	}
 
-	totalTokens := claudeResp.Usage.InputTokens + claudeResp.Usage.OutputTokens
-	return claudeResp.Content[0].Text, totalTokens, nil
+	return claudeResp.Content[0].Text, claudeResp.Usage.InputTokens, claudeResp.Usage.OutputTokens, nil
 }

@@ -138,13 +138,14 @@ func HandleTextMessage(
 	defer cancel()
 
 	// Call Claude API
-	rewrittenText, actualTokens, err := claudeClient.RewriteToCorporate(apiCtx, message.Text)
+	rewrittenText, inputTokens, outputTokens, err := claudeClient.RewriteToCorporate(apiCtx, message.Text)
+	actualTokens := inputTokens + outputTokens
 
 	// Log the usage to database (even if failed)
 	usageLog := &storage.UsageLog{
 		UserID:          user.ID,
-		InputTokens:     0,
-		OutputTokens:    0,
+		InputTokens:     inputTokens,
+		OutputTokens:    outputTokens,
 		TotalTokens:     actualTokens,
 		MessagePreview:  truncateString(message.Text, 500),
 		ResponsePreview: "",
