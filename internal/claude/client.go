@@ -27,6 +27,7 @@ type Request struct {
 	Model       string    `json:"model"`
 	MaxTokens   int       `json:"max_tokens"`
 	Messages    []Message `json:"messages"`
+	System      string    `json:"system,omitempty"`
 	Temperature float64   `json:"temperature,omitempty"`
 }
 
@@ -95,15 +96,14 @@ Rules:
 // RewriteToCorporate rewrites text into polite corporate style
 // Returns: (rewritten text, input tokens, output tokens, error)
 func (c *Client) RewriteToCorporate(ctx context.Context, text string) (string, int, int, error) {
-	prompt := fmt.Sprintf("%s%s", c.systemPrompt, text)
-
 	reqBody := Request{
 		Model:     c.model,
 		MaxTokens: 1024,
+		System:    c.systemPrompt,
 		Messages: []Message{
 			{
 				Role:    "user",
-				Content: prompt,
+				Content: text,
 			},
 		},
 		Temperature: 0.7,
