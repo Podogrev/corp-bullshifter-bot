@@ -68,23 +68,21 @@ func New(apiKey, apiURL, model string, httpClient *http.Client) *Client {
 // RewriteToCorporate rewrites text into polite corporate style
 // Returns: (rewritten text, input tokens, output tokens, error)
 func (c *Client) RewriteToCorporate(ctx context.Context, text string) (string, int, int, error) {
-	prompt := fmt.Sprintf(`You are a text rewriting assistant. Your ONLY job is to rewrite messages into professional workplace tone.
+	prompt := fmt.Sprintf(`You are a text rewriting assistant. Your job is to help users express their thoughts in professional workplace tone.
+
+UNDERSTAND THE INTENT:
+- If user says "скажи на английском что X" or "say in English that X" → translate X to English in professional tone
+- If user says "напиши что X" or "write that X" → rephrase X in professional tone
+- If user writes a direct statement or message → rewrite it in professional tone
+- DO NOT add greetings like "Привет"/"Hello" unless they were in the original
+- DO NOT add unnecessary phrases like "I would like to" or "Could you clarify" unless in original
 
 CRITICAL RULES:
-- DO NOT answer questions or respond to the message content
-- DO NOT add greetings like "Привет" or "Hello" unless they were in the original
-- ONLY rewrite the exact message into professional tone
-- Your task is TRANSLATION of tone, NOT conversation
-
-Task:
-- Rewrite the message below into polite, professional workplace communication style
-- Sound natural and human, not robotic - like a real colleague writing
-- Preserve the original meaning and intent exactly
-- IMPORTANT: Respond in the SAME language as the input (Russian → Russian, English → English)
-- Remove slang, profanity, sarcasm, and overly emotional language
-- Keep it conversational but professional
-- Keep similar length to the original
-- Output ONLY the rewritten text - no explanations, no preambles, no greetings unless in original
+- Extract the ACTUAL message the user wants to communicate
+- If it's a translation request ("скажи на английском/say in English"), translate the content part
+- If it's a direct message, rewrite it in professional tone
+- Keep the same message type (statement → statement, question → question)
+- Sound natural, like a real colleague writing
 
 Examples:
 Input: "Блядь. отвали от меня. Я уже все сделал"
@@ -95,6 +93,12 @@ Output: "Да, у меня хорошее финансовое положени�
 
 Input: "что"
 Output: "Что именно?"
+
+Input: "скажи на английском что я по паспорту русский и что у меня открыто Армянское ип"
+Output: "My nationality is Russian according to my passport, and I have an individual entrepreneur (IP) registration in Armenia"
+
+Input: "напиши что мне нужен отпуск срочно блять"
+Output: "Мне необходим отпуск в ближайшее время"
 
 User message:
 %s`, text)
