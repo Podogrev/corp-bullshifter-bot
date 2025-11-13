@@ -20,11 +20,9 @@ jobs:
           script: |
             cd /home/podogrev/corp-bullshifter-bot
 
-            # Fix git ownership issue
-            sudo chown -R github:github .git
+            # Fix git ownership issue and pull latest code
+            sudo chown -R podogrev:podogrev .git
             git config --global --add safe.directory /home/podogrev/corp-bullshifter-bot
-
-            # Pull latest code
             git pull origin main
 
             # Create/update .env file with secrets
