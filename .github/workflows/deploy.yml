@@ -29,6 +29,9 @@ jobs:
             echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" | sudo tee .env > /dev/null
             echo "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}" | sudo tee -a .env > /dev/null
             echo "CLAUDE_MODEL=${{ secrets.CLAUDE_MODEL }}" | sudo tee -a .env > /dev/null
+            echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" | sudo tee -a .env > /dev/null
+            echo "REDIS_URL=${{ secrets.REDIS_URL }}" | sudo tee -a .env > /dev/null
+            echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" | sudo tee -a .env > /dev/null
 
             # Set proper permissions for .env
             sudo chmod 644 .env

@@ -1,8 +1,47 @@
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: corp-bullshifter-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=corp_bullshifter
+      - POSTGRES_USER=bot_user
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-change_me_in_production}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bot_user -d corp_bullshifter"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: corp-bullshifter-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   bot:
     build: .
     container_name: corp-bullshifter-bot
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     environment:
@@ -10,3 +49,9 @@ services:
       - CLAUDE_API_KEY=${CLAUDE_API_KEY}
       - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-3-5-haiku-20241022}
       - CLAUDE_API_URL=${CLAUDE_API_URL:-https://api.anthropic.com/v1/messages}
+      - DATABASE_URL=postgres://bot_user:${POSTGRES_PASSWORD:-change_me_in_production}@postgres:5432/corp_bullshifter?sslmode=disable
+      - REDIS_URL=redis://redis:6379/0
+
+volumes:
+  postgres_data:
+  redis_data:
