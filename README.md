@@ -129,14 +129,33 @@ It looks like this might be a production issue, and our clients are already able
 | `CLAUDE_MODEL` | Claude model to use | `claude-3-5-sonnet-20241022` |
 | `CLAUDE_API_URL` | Claude API endpoint | `https://api.anthropic.com/v1/messages` |
 
+## Deployment
+
+For production deployment on a VPS with Docker, see [DEPLOYMENT.md](DEPLOYMENT.md) for detailed instructions including:
+- Docker setup
+- Secure token management
+- VPS deployment steps
+- Monitoring and troubleshooting
+
+Quick start with Docker:
+```bash
+docker-compose build
+docker-compose up -d
+```
+
 ## Project Structure
 
 ```
 corp-bullshifter/
-├── main.go          # Main application code
-├── go.mod           # Go module definition
-├── go.sum           # Go module checksums (generated)
-└── README.md        # This file
+├── main.go              # Main application code
+├── go.mod               # Go module definition
+├── go.sum               # Go module checksums (generated)
+├── Dockerfile           # Docker image definition
+├── docker-compose.yml   # Docker Compose configuration
+├── .env.example         # Environment variables template
+├── .gitignore           # Git ignore rules
+├── README.md            # This file
+└── DEPLOYMENT.md        # VPS deployment guide
 ```
 
 ## How It Works

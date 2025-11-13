@@ -1,0 +1,40 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd ~/apps/corp-bullshifter-bot
+
+            # Pull latest code
+            git pull origin main
+
+            # Create/update .env file with secrets
+            cat > .env << EOF
+            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+            CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}
+            CLAUDE_MODEL=${{ secrets.CLAUDE_MODEL }}
+            EOF
+
+            # Restart the bot
+            docker-compose down
+            docker-compose build
+            docker-compose up -d
+
+            # Show status
+            docker-compose ps
+            echo "Deployment completed successfully!"

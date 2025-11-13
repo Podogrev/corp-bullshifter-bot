@@ -1,0 +1,32 @@
+# Environment files with secrets
+.env
+.env.*
+
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+DEPLOYMENT.md
+LICENSE
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+corp-bullshifter
+
+# Test files
+*_test.go
+*.test
+
+# Misc
+.DS_Store
