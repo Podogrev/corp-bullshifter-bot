@@ -3,16 +3,19 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 // Config holds all application configuration
 type Config struct {
-	TelegramToken string
-	ClaudeAPIKey  string
-	ClaudeAPIURL  string
-	ClaudeModel   string
-	DatabaseURL   string
-	RedisURL      string
+	TelegramToken         string
+	TelegramProviderToken string
+	ClaudeAPIKey          string
+	ClaudeAPIURL          string
+	ClaudeModel           string
+	DatabaseURL           string
+	RedisURL              string
+	StarsPerUSD           float64
 }
 
 const (
@@ -22,17 +25,22 @@ const (
 	DefaultClaudeModel = "claude-3-5-sonnet-20241022"
 	// DailyTokenLimit is the maximum tokens per user per day
 	DailyTokenLimit = 10000
+
+	// DefaultStarsPerUSD is an approximate conversion rate Telegram uses for Stars purchases
+	DefaultStarsPerUSD = 65.0
 )
 
 // Load reads configuration from environment variables
 func Load() (*Config, error) {
 	cfg := &Config{
-		TelegramToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
-		ClaudeAPIKey:  os.Getenv("CLAUDE_API_KEY"),
-		ClaudeAPIURL:  os.Getenv("CLAUDE_API_URL"),
-		ClaudeModel:   os.Getenv("CLAUDE_MODEL"),
-		DatabaseURL:   os.Getenv("DATABASE_URL"),
-		RedisURL:      os.Getenv("REDIS_URL"),
+		TelegramToken:         os.Getenv("TELEGRAM_BOT_TOKEN"),
+		TelegramProviderToken: os.Getenv("TELEGRAM_PROVIDER_TOKEN"),
+		ClaudeAPIKey:          os.Getenv("CLAUDE_API_KEY"),
+		ClaudeAPIURL:          os.Getenv("CLAUDE_API_URL"),
+		ClaudeModel:           os.Getenv("CLAUDE_MODEL"),
+		DatabaseURL:           os.Getenv("DATABASE_URL"),
+		RedisURL:              os.Getenv("REDIS_URL"),
+		StarsPerUSD:           DefaultStarsPerUSD,
 	}
 
 	// Validate required fields
@@ -55,6 +63,12 @@ func Load() (*Config, error) {
 	}
 	if cfg.ClaudeModel == "" {
 		cfg.ClaudeModel = DefaultClaudeModel
+	}
+
+	if starsRaw := os.Getenv("STARS_PER_USD"); starsRaw != "" {
+		if parsed, err := strconv.ParseFloat(starsRaw, 64); err == nil && parsed > 0 {
+			cfg.StarsPerUSD = parsed
+		}
 	}
 
 	return cfg, nil
