@@ -70,6 +70,14 @@ go build -o corp-bullshifter
 
 - `/start` - Welcome message and bot introduction
 - `/help` - Usage instructions and examples
+- `/subscribe` - Purchase a monthly Telegram Stars token pack
+- `/stats` - Check your usage statistics
+
+### Telegram Stars subscription
+
+- Price: equivalent of **$5** per month (priced in Stars using `STARS_PER_USD`, default ~65 Stars per USD)
+- Allowance: monthly token pool equal to what **Claude Haiku 4.5** would permit on a **$3** budget (calculated with mixed input/output pricing)
+- Billing: handled with the in-app Stars flow; a `TELEGRAM_PROVIDER_TOKEN` is only needed if you also accept non-Star payments.
 
 ### Text Conversion
 
@@ -128,6 +136,8 @@ It looks like this might be a production issue, and our clients are already able
 |----------|-------------|---------|
 | `CLAUDE_MODEL` | Claude model to use | `claude-3-5-sonnet-20241022` |
 | `CLAUDE_API_URL` | Claude API endpoint | `https://api.anthropic.com/v1/messages` |
+| `TELEGRAM_PROVIDER_TOKEN` | Payment provider token (not required for Stars) | _empty_ |
+| `STARS_PER_USD` | Conversion rate of Stars to USD for pricing | `65` |
 
 ## Deployment
 

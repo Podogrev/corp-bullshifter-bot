@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -37,6 +38,17 @@ type UsageLog struct {
 	ResponsePreview string
 	Model           string
 	Success         bool
+}
+
+// Subscription represents a paid monthly token package
+type Subscription struct {
+	ID            int64
+	UserID        int64
+	ExpiresAt     time.Time
+	TokensGranted int
+	TokensUsed    int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // New creates a new Storage instance and connects to PostgreSQL
@@ -201,4 +213,103 @@ func TruncateString(s string, maxLength int) string {
 		return s
 	}
 	return s[:maxLength] + "..."
+}
+
+// RemainingTokens returns how many tokens are left in the subscription period
+func (s *Subscription) RemainingTokens() int {
+	return s.TokensGranted - s.TokensUsed
+}
+
+// UpsertSubscription creates or renews a monthly subscription for a user
+func (s *Storage) UpsertSubscription(ctx context.Context, userID int64, tokensGranted int, duration time.Duration) (*Subscription, error) {
+	sub := &Subscription{}
+
+	query := `
+                INSERT INTO subscriptions (user_id, expires_at, tokens_granted, tokens_used)
+                VALUES ($1, CURRENT_TIMESTAMP + make_interval(secs => $2), $3, 0)
+                ON CONFLICT (user_id) DO UPDATE
+                SET expires_at = EXCLUDED.expires_at,
+                    tokens_granted = EXCLUDED.tokens_granted,
+                    tokens_used = 0,
+                    updated_at = CURRENT_TIMESTAMP
+                RETURNING id, user_id, expires_at, tokens_granted, tokens_used, created_at, updated_at
+        `
+
+	err := s.pool.QueryRow(ctx, query, userID, int64(duration.Seconds()), tokensGranted).Scan(
+		&sub.ID,
+		&sub.UserID,
+		&sub.ExpiresAt,
+		&sub.TokensGranted,
+		&sub.TokensUsed,
+		&sub.CreatedAt,
+		&sub.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upsert subscription: %w", err)
+	}
+
+	return sub, nil
+}
+
+// GetActiveSubscription returns an active subscription for the user if it exists
+func (s *Storage) GetActiveSubscription(ctx context.Context, userID int64) (*Subscription, error) {
+	sub := &Subscription{}
+	query := `
+                SELECT id, user_id, expires_at, tokens_granted, tokens_used, created_at, updated_at
+                FROM subscriptions
+                WHERE user_id = $1 AND expires_at > CURRENT_TIMESTAMP
+        `
+
+	err := s.pool.QueryRow(ctx, query, userID).Scan(
+		&sub.ID,
+		&sub.UserID,
+		&sub.ExpiresAt,
+		&sub.TokensGranted,
+		&sub.TokensUsed,
+		&sub.CreatedAt,
+		&sub.UpdatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		if err == pgxpool.ErrClosed {
+			return nil, fmt.Errorf("database connection closed: %w", err)
+		}
+		return nil, err
+	}
+
+	return sub, nil
+}
+
+// ConsumeSubscriptionTokens deducts tokens from an active subscription if enough balance exists
+func (s *Storage) ConsumeSubscriptionTokens(ctx context.Context, userID int64, tokens int) (*Subscription, bool, error) {
+	sub := &Subscription{}
+
+	query := `
+                UPDATE subscriptions
+                SET tokens_used = tokens_used + $1, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = $2
+                  AND expires_at > CURRENT_TIMESTAMP
+                  AND tokens_used + $1 <= tokens_granted
+                RETURNING id, user_id, expires_at, tokens_granted, tokens_used, created_at, updated_at
+        `
+
+	err := s.pool.QueryRow(ctx, query, tokens, userID).Scan(
+		&sub.ID,
+		&sub.UserID,
+		&sub.ExpiresAt,
+		&sub.TokensGranted,
+		&sub.TokensUsed,
+		&sub.CreatedAt,
+		&sub.UpdatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+
+	return sub, true, nil
 }

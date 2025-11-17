@@ -67,7 +67,17 @@ func main() {
 
 	// Process updates
 	for update := range updates {
+		if update.PreCheckoutQuery != nil {
+			go bot.HandlePreCheckout(telegramBot, update.PreCheckoutQuery)
+			continue
+		}
+
 		if update.Message == nil {
+			continue
+		}
+
+		if update.Message.SuccessfulPayment != nil {
+			go bot.HandleSuccessfulPayment(telegramBot, update.Message, store)
 			continue
 		}
 
@@ -79,7 +89,9 @@ func main() {
 			case "help":
 				go bot.HandleHelp(telegramBot, update.Message)
 			case "stats":
-				go bot.HandleStats(telegramBot, update.Message, limiter)
+				go bot.HandleStats(telegramBot, update.Message, limiter, store)
+			case "subscribe":
+				go bot.HandleSubscribe(telegramBot, update.Message, cfg)
 			default:
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 					"Unknown command. Use /help to see available commands.")
